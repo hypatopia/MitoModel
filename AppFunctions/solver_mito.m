@@ -1,0 +1,111 @@
+function [t,y] = solver_mito(params, data, Model, modeleqns)
+%{
+Created by: Chris Cadonic
+Revised by: Marzieh Eini Keleshteri June 2024
+========================================
+This function solves the full situation for my model by step-wise
+solving the ODEs for each section using the appropriate equations.
+%}
+
+params.inhibit_t = data.Injection_Times(end);
+
+initial_params = [params.cytcred, params.oxygen, params.Hn, params.Hp];
+
+% fccp_times = [data.fccp_1_times; data.fccp_2_times; ...
+%             data.fccp_3_times; data.fccp_4_times];
+params.oligo_t = data.oligo_t;
+params.fccp_1_t = data.fccp_1_t;
+params.fccp_2_t = data.fccp_2_t;
+params.fccp_3_t = data.fccp_3_t;
+params.fccp_4_t = data.fccp_4_t;
+
+
+%Set the options for running ode23t
+% options = odeset('NonNegative',[1,2,3,4],'RelTol', 1e-9, 'AbsTol', 1e-9);
+options = odeset('NonNegative',[1,2,3,4]);
+
+%Setup a fallback set of times in cases of unsolvable parameter sets
+t_fallback = [data.baseline_times; data.oligo_times; data.fccp_times; data.inhibit_times];
+num_times = numel(t_fallback);
+
+tic
+
+switch Model.Type
+    case 'FullModelGlobal'
+        %Solve by using ode for each section and passing along the final
+        %values as initial values for the next section using the proton
+        %balance equations
+        try
+            [t1,y1] = ode23t(@baselineSystem, data.baseline_times, initial_params, options, params);
+            [t2,y2] = ode23t(@oligoSystem, data.oligo_times, [y1(end,1), y1(end,2), y1(end,3), ...
+                y1(end,4)], options, params);
+            [t3,y3] = ode23t(@fccpSystem, data.fccp_times, [y2(end,1), y2(end,2), y2(end,3), ...
+                y2(end,4)], options, params);
+            [t4, y4] = ode23t(@inhibitSystem, data.inhibit_times, ...
+                [params.attenuateProp * y3(end,1), y3(end,2), y3(end,3), ...
+                y3(end,4)], options, params);
+
+            t = [t1; t2; t3; t4];
+            y = [y1; y2; y3; y4];
+
+            if (numel(y(:,2)) ~= num_times) || (~isreal(y))
+                error('Error in ode solver.');
+            end
+        catch ME
+            disp('Error in ode solver:');
+            disp(ME.message);
+            rethrow(ME);
+        end
+        case 'BaselineModel'
+            %Solve by using ode for the entire timeframe for just the baseline
+            %system
+            try
+                [t,y] = ode23tb(modeleqns.BaselineModel{1}, t_fallback, initial_params,options,...
+                    params);
+
+                if numel(y(:,2)) ~= num_times
+                    error('Error in ode solver.');
+                end
+            catch ME
+                disp('Error in ode solver:');
+                disp(ME.message);
+                rethrow(ME);
+               
+            end
+toc
+end
+        % % % case ' Full Model - Sequential'
+                % % %     %Solve by using ode for each section and passing along the final
+                % % %     %values as initial values for the next section using the MP
+                % % %     %equations
+                % % %     [t1,y1] = ode23t(@baselineSystem, data.baseline_times, initial_params,options, params);
+                % % %     [t2,y2] = ode23t(@oligSystem, data.oligo_times, initial_params,options, params);
+                % % %     [t3,y3] = ode23t(@fccpSystem, [data.fccp_1_times; data.fccp_50_times; ...
+                % % %         data.fccp_75_times; data.fccp_100_times], initial_params,options, params);
+                % % %     [t4, y4] = ode23t(@inhibitSystem, data.inhibit_times, ...
+                % % %         [params.cyt_c_drop * y1(end,1), y1(end,2), y1(end,3), ...
+                % % %         y1(end,4)], options, params);
+                % % %
+                % % %     t = [t1; t2; t3; t4];
+                % % %     y = [y1; y2; y3; y4];
+                % [t1,y1] = ode23t(model_equations{1}, data.baseline_times, ...
+                %     initial_params_mp,options_mp,params);
+                % [t2,y2] = ode23t(model_equations{2}, data.oligo_fccp_times, ...
+                %     [y1(end,1),y1(end,2),y1(end,3)],options_mp,params);
+                % [t3,y3] = ode23t(model_equations{3}, data.inhibit_times, ...
+                %     [y2(end,1),y2(end,2),y2(end,3)],options_mp,params);
+                %
+                % t = [t1;t2;t3];
+                % y = [y1;y2;y3];
+                %
+                % if numel(y(:,2)) ~= num_times
+                %     error('Error in ode solver.');
+                % end
+            %     toc
+            % end
+            % warning on
+            % catch
+            %     t = t_fallback;
+            %     y = zeros(num_times, 4);
+            %     y(:,3:4) = ones(num_times, 2);
+            % end

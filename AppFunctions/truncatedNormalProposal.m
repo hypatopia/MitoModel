@@ -1,0 +1,6 @@
+function stepFunction = truncatedNormalProposal(bounds, stepSizes)
+    % Create a function to generate steps with parameter-specific step sizes
+    stepFunction = @(theta) arrayfun(@(i) ...
+        max(bounds(i, 1), min(bounds(i, 2), theta(i) + randn * stepSizes(i))), ...
+        1:length(theta));
+end

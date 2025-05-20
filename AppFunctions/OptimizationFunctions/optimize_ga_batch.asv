@@ -1,0 +1,106 @@
+function [optParams, fval, gaInfo] = optimize_ga_batch(params, data, Model, modeleqns, options, progressDlg)
+%{
+Created by: Marzieh Eini Keleshteri, June 2024
+==================================================
+Custom Genetic Algorithm Optimization of Model Parameters
+==================================================
+This function optimizes model parameters using the Genetic Algorithm (GA)
+with custom options specified by the user, and returns the optimized parameters
+and their objective function value.
+
+Inputs:
+- params: Initial parameters for optimization
+- data: Data used for model fitting
+- Model.Type: Type of the model to optimize
+- modeleqns: Available model options
+- No_Iter: Number of iterations to run the GA
+- options: GA options
+- progressDlg: Progress dialog handle
+
+Outputs:
+- optParams: Optimized parameters
+- fval: Objective function value of the optimized parameters
+- gaInfo: Struct containing GA optimization information
+%}
+
+% Define base directory for saving optimized solutions
+curdir = fileparts(fileparts(fileparts(which(mfilename))));
+saveDir = fullfile(curdir, 'OptimizedSolutions');
+if ~exist(saveDir, 'dir')
+    mkdir(saveDir);
+end
+
+% Define the objective function
+Model_obj_Func = @(params_to_Opt) mse_error(params_to_Opt, params, data, Model, modeleqns);
+
+% Set bounds for the parameters
+rangeLow = params.rangeLow;
+rangeUp = params.rangeUp;
+
+% Set the number of variables (parameters to optimize)
+nvars = numel(rangeLow);
+
+% Initialize variables to store the best parameters and their objective function value
+bestParams = [];
+bestFval = inf;
+
+% Initialize GA info structure
+gaInfo = struct('numIterations', 0, 'PopulationSize', options.PopulationSize, ...
+    'MaxGenerations', options.MaxGenerations, 'CrossoverFraction', options.CrossoverFraction, ...
+    'gaError', inf, 'successInfo', '', 'numGenerations', 0, 'Duration', 0);
+
+% Record start time
+startTime = tic;
+
+% Check and update progress dialog for each iteration if it exists
+if ~isempty(progressDlg) && isvalid(progressDlg)
+    progressDlg.Message = sprintf('Running GA iteration %d of %d...', ii, No_Iter);
+    progressDlg.Value = ii / No_Iter;
+end
+
+% Run GA optimization with the defined output function for tracking
+[x, fval, exitFlag, output] = ga(Model_obj_Func, nvars, [], [], [], [], rangeLow, rangeUp, [], options);
+
+% Update best parameters if the current solution is better
+if fval < bestFval
+    bestFval = fval;
+    bestParams = x;
+end
+
+% Update gaError with the best found objective function value
+gaInfo.gaError = bestFval;
+
+% Capture success information based on exitFlag
+switch exitFlag
+    case 1
+        gaInfo.successInfo = 'Optimization terminated successfully.';
+    case 0
+        gaInfo.successInfo = 'Maximum number of generations exceeded.';
+    case -1
+        gaInfo.successInfo = 'Optimization terminated by user.';
+    case -2
+        gaInfo.successInfo = 'No feasible solution found.';
+    otherwise
+        gaInfo.successInfo = 'Optimization terminated with unknown status.';
+end
+
+% Update GA info with cumulative generations
+gaInfo.numGenerations = gaInfo.numGenerations + output.generations;
+end
+
+% Update the number of iterations and record duration
+gaInfo.numIterations = No_Iter;
+gaInfo.Duration = toc(startTime);
+
+% Save the optimized parameters
+save(fullfile(saveDir, 'optimized_params.mat'), 'bestParams', 'gaInfo'); % Save gaInfo for future reference
+
+% Return the best parameters and their objective function value
+optParams = bestParams;
+fval = bestFval;
+
+% Finalize progress dialog if it exists
+if ~isempty(progressDlg) && isvalid(progressDlg)
+    progressDlg.Message = 'GA Optimization Complete';
+    progressDlg.Value = 1.0;
+end
